@@ -8,12 +8,10 @@ class KinsEnv:
 
     # Actions are all the lines that don't have max_len plus the action of not adding anybody    
     def actions(self, state):
-        if np.sum(state) == self.num_lines * self.max_len:
-            return [self.num_lines]
-        return np.array([i for i in range(self.num_lines) if state[i] < self.max_len])
+        return np.array([i for i in range(self.num_lines)])
 
     def parameter_linear_growth(self, state):
-        return np.array([1+(self.max_len-state[i])*(self.line_params[i]-1)/self.max_len for i in range(self.num_lines)])
+        return np.array([(1-self.line_params[i])*state[i]/self.max_len + self.line_params[i] for i in range(self.num_lines)])
     
     # Returns the reward and the new state
     # Reward is the number of processed people
@@ -23,10 +21,11 @@ class KinsEnv:
             s[action] += 1
             # explodes = np.random.rand() < self.line_params[action]
             explodes = np.random.rand() < self.parameter_linear_growth(s)[action]
+            # print(self.parameter_linear_growth(s)[action])
         else:
             explodes = True
         terminal = action == self.num_lines or explodes
-        reward = -1 if terminal else 1
+        reward = 0 if terminal else 1
 
         # reward, new_state, terminal
         return reward, np.copy(s), terminal
@@ -41,7 +40,7 @@ class SarsaAgent:
         self.n = n
         self.episode_length = episode_length
 
-        self.Q = np.zeros(((env.max_len+1)**env.num_lines, env.num_lines+1))
+        self.Q = np.zeros(((env.max_len+1)**env.num_lines, env.num_lines))
         self.states = [0 for i in range(episode_length)]
         self.actions = [0 for i in range(episode_length)]
         self.rewards = [0 for i in range(episode_length)]
@@ -121,20 +120,23 @@ class SarsaAgent:
             print("Episode: ", episode, " Reward: ", np.sum(self.rewards[:T+1]), " Episode length: ", episode_lengths[-1])
         print("---")
         print("Evaluation:")
-        average_reward = 0
-        for i in range(100):
-            state = np.array([0 for i in range(self.env.num_lines)])
-            terminal = False
-            while not terminal:
-                action = self.greedy_policy(state)
-                reward, state, terminal = self.env.step(state, action)
-                average_reward += reward/100
-        print("Average reward: ", average_reward)
+        terminal = False
+        tot_reward = 0
+        state = np.array([0 for i in range(self.env.num_lines)])
+        while not terminal:
+            string = "state: " + str(state) 
+            action = self.greedy_policy(state)
+            string += " action: " + str(action)
+            reward, state, terminal = self.env.step(state, action)
+            string += " reward: " + str(reward) + " terminal: " + str(terminal)
+            print(string)
+            tot_reward += reward
+        print("Total reward: ", tot_reward)
         return rewards, episode_lengths
 
     def pretty_Q(self):
-        Q_by_action = [i for i in range(self.env.num_lines+1)]
-        for i in range(self.env.num_lines+1):
+        Q_by_action = [i for i in range(self.env.num_lines)]
+        for i in range(self.env.num_lines):
             pretty_Q = np.zeros([self.env.max_len+1 for i in range(self.env.num_lines)])
             for j in range((self.env.max_len+1)**self.env.num_lines):
                 state = tuple(self.index_to_state(j))
