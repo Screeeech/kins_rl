@@ -10,7 +10,10 @@ class KinsEnv:
     def actions(self, state):
         if np.sum(state) == self.num_lines * self.max_len:
             return [self.num_lines]
-        return np.hstack((np.array([i for i in range(self.num_lines) if state[i] < self.max_len]), np.array([self.num_lines])))
+        return np.array([i for i in range(self.num_lines) if state[i] < self.max_len])
+
+    def parameter_linear_growth(self, state):
+        return np.array([1+(self.max_len-state[i])*(self.line_params[i]-1)/self.max_len for i in range(self.num_lines)])
     
     # Returns the reward and the new state
     # Reward is the number of processed people
@@ -18,14 +21,15 @@ class KinsEnv:
         s = np.copy(state)
         if action != self.num_lines:
             s[action] += 1
-        
-        old_total = np.sum(s)
-        s -= np.array([1 if np.random.rand() < self.line_params[i] and s[i] != 0 else 0 for i in range(self.num_lines)])
-        # reward = old_total - np.sum(state) if action != self.num_lines else -1
-        # reward = old_total - np.sum(s)
-        reward = np.sum(s)
+            # explodes = np.random.rand() < self.line_params[action]
+            explodes = np.random.rand() < self.parameter_linear_growth(s)[action]
+        else:
+            explodes = True
+        terminal = action == self.num_lines or explodes
+        reward = -1 if terminal else 1
 
-        return reward, np.copy(s)
+        # reward, new_state, terminal
+        return reward, np.copy(s), terminal
     
 
 class SarsaAgent:
@@ -43,8 +47,7 @@ class SarsaAgent:
         self.rewards = [0 for i in range(episode_length)]
         self.sigmas = [0 for i in range(episode_length)]
         self.importance_factors = [0 for i in range(episode_length)]
-
-        self.coverage_map = np.zeros([env.max_len+1 for i in range(env.num_lines)])
+        self.terminals = [0 for i in range(episode_length)]
 
     def state_to_index(self, state):
         return sum([state[i] * (self.env.max_len+1)**i for i in range(self.env.num_lines)])
@@ -75,7 +78,7 @@ class SarsaAgent:
         
     def learn(self, num_episodes=100):
         rewards = []
-        coverage = []
+        episode_lengths = []
         for episode in range(num_episodes):
             T = np.inf
             tau = 0
@@ -84,14 +87,12 @@ class SarsaAgent:
             V = 0
 
             self.states[0] = np.array([np.random.randint(0,self.env.max_len+1) for i in range(self.env.num_lines)])
-            self.actions[0] = self.epsilon_greedy_policy(self.states[0])
-            self.coverage_map[tuple(self.states[0])] = 1
+            self.actions[0] = np.random.choice(self.env.actions(self.states[0]))
             while tau != T - 1:
                 if t < T:
-                    self.rewards[t+1], self.states[t+1] = self.env.step(self.states[t], self.actions[t])
-                    self.coverage_map[tuple(self.states[t+1])] = 1
+                    self.rewards[t+1], self.states[t+1], self.terminals[t+1] = self.env.step(self.states[t], self.actions[t])
                     # The max length step is always terminal, so we check if t+1==max_length-1
-                    if t == self.episode_length - 2:
+                    if self.terminals[t+1] or t == self.episode_length - 2:
                         T = t + 1
                     else:
                         self.actions[t+1] = self.epsilon_greedy_policy(self.states[t+1])
@@ -115,10 +116,21 @@ class SarsaAgent:
                             G = r + self.gamma * (sigma*importance_factor + (1-sigma))*(G - Q) + self.gamma * V
                     self.Q[self.state_to_index(self.states[tau]), self.actions[tau]] += self.alpha * (G - self.Q[self.state_to_index(self.states[tau]), self.actions[tau]])
                 t += 1
-            rewards.append(np.sum(self.rewards))
-            coverage.append(np.sum(self.coverage_map)/(self.env.max_len+1)**self.env.num_lines)
-            print("Episode: ", episode, " Reward: ", np.sum(self.rewards), " Coverage: ", np.sum(self.coverage_map)/(self.env.max_len+1)**self.env.num_lines)
-        return rewards, coverage
+            rewards.append(np.sum(self.rewards[:T+1]))
+            episode_lengths.append(T)
+            print("Episode: ", episode, " Reward: ", np.sum(self.rewards[:T+1]), " Episode length: ", episode_lengths[-1])
+        print("---")
+        print("Evaluation:")
+        average_reward = 0
+        for i in range(100):
+            state = np.array([0 for i in range(self.env.num_lines)])
+            terminal = False
+            while not terminal:
+                action = self.greedy_policy(state)
+                reward, state, terminal = self.env.step(state, action)
+                average_reward += reward/100
+        print("Average reward: ", average_reward)
+        return rewards, episode_lengths
 
     def pretty_Q(self):
         Q_by_action = [i for i in range(self.env.num_lines+1)]

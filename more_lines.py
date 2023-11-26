@@ -6,7 +6,7 @@ num_lines = 4
 max_len = 10
 params = [.1, .2, .05, .05]
 KinsEnv = kins.KinsEnv(num_lines, max_len, params)
-sarsa = kins.SarsaAgent(KinsEnv, alpha=.1, gamma=.1, epsilon=.05, n=1, episode_length=10)
+sarsa = kins.SarsaAgent(KinsEnv, alpha=.1, gamma=.1, epsilon=.05, n=1, episode_length=50)
 rewards, coverage = sarsa.learn(num_episodes=1000)
 
 # create 2 subplots
